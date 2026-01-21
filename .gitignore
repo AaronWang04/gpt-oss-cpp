@@ -1,4 +1,5 @@
 AGENTS.md
+*-model/
 
 # Build directories
 .cache/
@@ -7,7 +8,8 @@ build-*/
 build/
 
 # Python cache
-python/*/__pycache__
+*/__pycache__
+*/venv
 
 # Model files
 *.sbs
