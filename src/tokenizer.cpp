@@ -1,11 +1,11 @@
 
 // byte pair encoding tokenizer
-class Tokenizer {
+class TikTokenTokenizer {
 private:
 
 
 public:
-    Tokenizer(){
+    TikTokenTokenizer(){
 
     }
 
