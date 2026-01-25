@@ -20,7 +20,10 @@ saftensor file format (predictably in this order)
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <sstream>
 #include <vector>
+
+#include "utils.cpp"
 
 enum DType {
 	BF16, U8
@@ -33,6 +36,28 @@ struct TensorMeta_ {
 	std::vector<std::uint64_t> offset;
 };
 
+inline std::string to_string(DType d) {
+    switch (d) {
+        case DType::BF16:   return "DType::BF16";
+        case DType::U8: return "DType::U8";
+    }
+    return "unknown";
+}
+
+inline std::string to_string(std::vector<std::uint64_t> vec) {
+    std::stringstream ss;
+    ss << '[';
+    for (auto elm : vec) {
+        ss << std::to_string(elm);
+    }
+    ss << ']';
+    return ss.str();
+}
+
+std::ostream& operator<<(std::ostream& os, const TensorMeta_& T) {
+	return os << T.name << ": " << to_string(T.dtype) << ", Shape: " << to_string(T.shape) << ", offset: " << to_string(T.offset) << '\n';
+};
+
 
 class Checkpoint {
 private:
@@ -42,24 +67,25 @@ private:
 	
 public:
 	Checkpoint(const std::string& path) {
-
 		std::ifstream file_stream(path, std::ios::binary);
 		if (!file_stream) throw std::runtime_error("wrong path or file DNE");
 
 		try {
 			file_stream.read(reinterpret_cast<char*>(&header_len), 8);
 			header.resize(header_len);
-			file_stream.read(header.data(), header_len);
+			file_stream.read(&header[0], header_len);
 		} catch (const std::exception& e) {
 			std::cerr << e.what() << std::endl;
 		}
 		processHeader();
-		// count how many white space in the header
-		// int white_space = std::count_if(header.begin(), header.end(), [](unsigned char c) {return std::isspace(c);});
-		// std::cout << header_len << std::endl;
-		// std::cout << white_space << std::endl;
-
 		file_stream.close();
+		debugPrintCheckpoint();
+	}
+
+	void debugPrintCheckpoint() {
+		for (auto tensor: meta_) {
+			std::cout << tensor;
+		}
 	}
 
 	void processHeader() {

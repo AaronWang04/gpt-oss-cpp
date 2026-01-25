@@ -13,10 +13,10 @@ with open(path, "rb") as f:
 
 print(header_json[:100])
 
-# print(json.dumps(header, indent=2, sort_keys=True))
-# out_path = os.environ.get("HEADER_JSON_OUT", "header.json")
-# with open(out_path, "w", encoding="utf-8") as out_f:
-#     json.dump(header, out_f, indent=2, sort_keys=True)
-# print(f"\nSaved header JSON to {out_path}")
+print(json.dumps(header, indent=2, sort_keys=True))
+out_path = os.environ.get("HEADER_JSON_OUT", "header.json")
+with open(out_path, "w", encoding="utf-8") as out_f:
+    json.dump(header, out_f, indent=2)
+print(f"\nSaved header JSON to {out_path}")
 
 data_start = 8 + header_len
