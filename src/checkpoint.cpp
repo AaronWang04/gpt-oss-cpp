@@ -17,13 +17,18 @@ saftensor file format (predictably in this order)
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstddef>
+#include <cstring>
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <sstream>
 #include <vector>
 
-#include "utils.cpp"
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 enum DType {
 	BF16, U8
@@ -60,13 +65,10 @@ std::ostream& operator<<(std::ostream& os, const TensorMeta_& T) {
 
 
 class Checkpoint {
-private:
-	std::uint64_t header_len;
-	std::string header;
-	std::vector<TensorMeta_> meta_;
 	
 public:
-	Checkpoint(const std::string& path) {
+	explicit Checkpoint(const std::string& path) {
+		path_ = path;
 		std::ifstream file_stream(path, std::ios::binary);
 		if (!file_stream) throw std::runtime_error("wrong path or file DNE");
 
@@ -79,7 +81,63 @@ public:
 		}
 		processHeader();
 		file_stream.close();
-		debugPrintCheckpoint();
+		// debugPrintCheckpoint();
+
+		// memory map the file
+		mmap_weights();
+	}
+
+	~Checkpoint() {
+		if (map_base_ && map_base_ != MAP_FAILED) {
+			munmap(map_base_, map_length_);
+		}
+		if (fd_ >= 0) {
+			close(fd_);
+		}
+	}
+
+private:
+
+	std::uint64_t header_len;
+	std::string header;
+	std::vector<TensorMeta_> meta_;
+	std::byte* weights;
+	std::string path_;
+	int fd_{-1};
+	void* map_base_{nullptr};
+	std::size_t map_length_{0};
+
+	void mmap_weights() {
+		fd_ = ::open(path_.c_str(), O_RDONLY);
+		if (fd_ < 0) {
+			throw std::runtime_error("failed to open safetensor file for mmap");
+		}
+
+		struct stat st {};
+		if (fstat(fd_, &st) != 0) {
+			close(fd_);
+			throw std::runtime_error("failed to open safetensor file for mmap");
+		}
+
+		std::uint64_t data_offset = 8 + header_len;
+		if (st.st_size < static_cast<off_t>(data_offset)) {
+			close(fd_);
+			fd_ = -1;
+			throw std::runtime_error("invalid safetensor file");
+		}
+
+		size_t page_size = sysconf(_SC_PAGE_SIZE);
+		std::uint64_t page_offset = data_offset % static_cast<std::uint64_t>(page_size);
+		const off_t map_offset = static_cast<off_t>(data_offset - page_offset);
+		map_length_ = static_cast<std::size_t>(st.st_size - map_offset);
+
+		map_base_ = mmap(nullptr, map_length_, PROT_READ, MAP_PRIVATE, fd_, map_offset);
+		if (map_base_ == MAP_FAILED) {
+			close(fd_);
+			fd_ = -1;
+			throw std::runtime_error("mmap failed for safetensor weights");
+		}
+		weights = reinterpret_cast<std::byte*>(map_base_) + page_offset;
 	}
 
 	void debugPrintCheckpoint() {
