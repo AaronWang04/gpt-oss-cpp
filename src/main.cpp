@@ -19,4 +19,9 @@ int main(int argc, char* argv[]) {
         std::cout << i << ' ';
     }
     std::cout << std::endl;
+    std::cout << std::endl;
+    for (int i : tokens) {
+        std::cout << tokenizer.decode(i);
+    }
+    std::cout << std::endl;
 };

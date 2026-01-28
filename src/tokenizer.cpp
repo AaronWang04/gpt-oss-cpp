@@ -142,7 +142,7 @@ public:
 
 private:
     std::string path_;
-    std::vector<std::string> id_to_token_ {""};
+    std::vector<std::string> id_to_token_;
     std::unordered_map<std::string, int> token_to_id_;
 
 
