@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include "src/tokenizer.cpp"
 
 class GPT_OSS_Model {
@@ -31,4 +32,4 @@ public:
         
     }
 
-}
+};

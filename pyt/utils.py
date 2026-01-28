@@ -23,7 +23,7 @@ def init_distributed() -> torch.device:
     # Initialize distributed inference
     world_size = int(os.environ.get("WORLD_SIZE", 1))
 
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and torch.cuda.mem_get_info()[1] > (1024**3)*24:
         rank = int(os.environ.get("RANK", 0))
         if world_size > 1:
             dist.init_process_group(

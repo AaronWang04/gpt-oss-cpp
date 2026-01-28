@@ -12,6 +12,11 @@ int main(int argc, char* argv[]) {
     // float temperature = 1.0f;
     // float top_p = 0.9f;
     Checkpoint checkpoint(model_path);
-    TikTokenTokenizer tokenizer(tokenizer_path);
-    
+    Tokenizer tokenizer(tokenizer_path);
+
+    std::vector<int> tokens = tokenizer.encode("hello my name is aaron");
+    for (int i : tokens) {
+        std::cout << i << ' ';
+    }
+    std::cout << std::endl;
 };
