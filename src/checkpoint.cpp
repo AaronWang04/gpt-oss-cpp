@@ -15,12 +15,14 @@ saftensor file format (predictably in this order)
 
 */
 #include <algorithm>
+#include <cassert>
 #include <cctype>
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
 #include <iostream>
 #include <fstream>
+#include <unordered_map>
 #include <string>
 #include <sstream>
 #include <vector>
@@ -39,6 +41,8 @@ struct TensorMeta_ {
 	DType dtype;
 	std::vector<std::uint64_t> shape;
 	std::vector<std::uint64_t> offset;
+	const std::byte* data{nullptr};
+	std::size_t byte_size{0};
 };
 
 inline std::string to_string(DType d) {
@@ -85,6 +89,7 @@ public:
 
 		// memory map the file
 		mmap_weights();
+		finalizeTensorData();
 	}
 
 	~Checkpoint() {
@@ -96,11 +101,86 @@ public:
 		}
 	}
 
+	const TensorMeta_& get(const std::string& name) const {
+		auto it = meta_.find(name);
+		if (it == meta_.end()) {
+			throw std::runtime_error("tensor not found in checkpoint: " + name);
+		}
+		return it->second;
+	}
+
+	const std::uint16_t* get_bf16_ptr(const std::string& name) const {
+		const auto& meta = get(name);
+		if (meta.dtype != DType::BF16) {
+			throw std::runtime_error("tensor dtype is not BF16: " + name);
+		}
+		return reinterpret_cast<const std::uint16_t*>(meta.data);
+	}
+
+	std::size_t get_bf16_count(const std::string& name) const {
+		const auto& meta = get(name);
+		if (meta.dtype != DType::BF16) {
+			throw std::runtime_error("tensor dtype is not BF16: " + name);
+		}
+		return meta.byte_size / sizeof(std::uint16_t);
+	}
+
+	const std::uint8_t* get_u8_ptr(const std::string& name) const {
+		const auto& meta = get(name);
+		if (meta.dtype != DType::U8) {
+			throw std::runtime_error("tensor dtype is not U8: " + name);
+		}
+		return reinterpret_cast<const std::uint8_t*>(meta.data);
+	}
+
+	std::size_t get_u8_count(const std::string& name) const {
+		const auto& meta = get(name);
+		if (meta.dtype != DType::U8) {
+			throw std::runtime_error("tensor dtype is not U8: " + name);
+		}
+		return meta.byte_size;
+	}
+
+	struct MXFP4Pair {
+		const std::uint8_t* blocks;
+		std::size_t blocks_count;
+		const std::uint8_t* scales;
+		std::size_t scales_count;
+	};
+
+	MXFP4Pair get_mxfp4_pair(
+		const std::string& base_name,
+		std::initializer_list<std::uint64_t> expected_prefix,
+		std::size_t expected_blocks_rank,
+		std::size_t expected_scales_rank
+	) const {
+		const std::string blocks_name = base_name + ".blocks";
+		const std::string scales_name = base_name + ".scales";
+		const auto& blocks_meta = get(blocks_name);
+		const auto& scales_meta = get(scales_name);
+		assert(blocks_meta.shape.size() == expected_blocks_rank);
+		assert(scales_meta.shape.size() == expected_scales_rank);
+		std::size_t i = 0;
+		for (auto expected_dim : expected_prefix) {
+			assert(i < blocks_meta.shape.size());
+			assert(i < scales_meta.shape.size());
+			assert(blocks_meta.shape[i] == expected_dim);
+			assert(scales_meta.shape[i] == expected_dim);
+			i++;
+		}
+		return MXFP4Pair{
+			get_u8_ptr(blocks_name),
+			get_u8_count(blocks_name),
+			get_u8_ptr(scales_name),
+			get_u8_count(scales_name),
+		};
+	}
+
 private:
 
 	std::uint64_t header_len;
 	std::string header;
-	std::vector<TensorMeta_> meta_;
+	std::unordered_map<std::string, TensorMeta_> meta_;
 	std::byte* weights;
 	std::string path_;
 	int fd_{-1};
@@ -140,9 +220,25 @@ private:
 		weights = reinterpret_cast<std::byte*>(map_base_) + page_offset;
 	}
 
+	void finalizeTensorData() {
+		for (auto& it : meta_) {
+			auto& meta = it.second;
+			if (meta.offset.size() != 2) {
+				throw std::runtime_error("invalid data_offsets for tensor: " + meta.name);
+			}
+			const std::uint64_t begin = meta.offset[0];
+			const std::uint64_t end = meta.offset[1];
+			if (end < begin) {
+				throw std::runtime_error("invalid data_offsets range for tensor: " + meta.name);
+			}
+			meta.byte_size = static_cast<std::size_t>(end - begin);
+			meta.data = weights + begin;
+		}
+	}
+
 	void debugPrintCheckpoint() {
-		for (auto tensor: meta_) {
-			std::cout << tensor;
+		for (const auto& it : meta_) {
+			std::cout << it.second;
 		}
 	}
 
@@ -166,7 +262,7 @@ private:
 			} else {
 				meta_instance.name = entry_name;
 				parseTensorMeta(i, meta_instance);
-				meta_.push_back(meta_instance);
+				meta_.emplace(meta_instance.name, std::move(meta_instance));
 			}
 
 			skipWhitespace(i);
