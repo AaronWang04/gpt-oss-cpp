@@ -67,41 +67,18 @@ public:
     // byte-pair encoding
     std::vector<int> encode(std::string text) const {
         if (text.empty()) return {};
-        std::vector<std::string> symbols;
-        symbols.reserve(text.size());
-        for (unsigned char c : text) {
-            symbols.emplace_back(1, static_cast<char>(c));
-        }
-
-        while (symbols.size() > 1) {
-            int best_rank = std::numeric_limits<int>::max();
-            size_t best_idx = 0;
-            bool found = false;
-
-            for (size_t i = 0; i + 1 < symbols.size(); ++i) {
-                std::string merged = symbols[i] + symbols[i + 1];
-                auto it = token_to_id_.find(merged);
-                if (it == token_to_id_.end()) continue;
-                if (it->second < best_rank) {
-                    best_rank = it->second;
-                    best_idx = i;
-                    found = true;
-                }
+        auto start = text.find("<|");
+        if (start != std::string::npos) {
+            auto end = text.find("|>", start + 2);
+            if (end != std::string::npos) {
+                throw std::runtime_error("special token handling to be implemneted");
             }
-
-            if (!found) break;
-            symbols[best_idx] += symbols[best_idx + 1];
-            symbols.erase(symbols.begin() + best_idx + 1);
         }
-
         std::vector<int> token_ids;
-        token_ids.reserve(symbols.size());
-        for (const auto& sym : symbols) {
-            auto it = token_to_id_.find(sym);
-            if (it == token_to_id_.end()) {
-                throw std::runtime_error("tokenizer: missing token for symbol");
-            }
-            token_ids.push_back(it->second);
+        auto pieces = regex_split(text, kO200kPatStr);
+        for (const auto& piece : pieces) {
+            auto piece_tokens = bpe_encode_piece(piece);
+            token_ids.insert(token_ids.end(), piece_tokens.begin(), piece_tokens.end());
         }
         return token_ids;
     }
@@ -144,6 +121,47 @@ private:
     std::string path_;
     std::vector<std::string> id_to_token_;
     std::unordered_map<std::string, int> token_to_id_;
+
+    std::vector<int> bpe_encode_piece(const std::string& piece) const {
+        if (piece.empty()) return {};
+        std::vector<std::string> symbols;
+        symbols.reserve(piece.size());
+        for (unsigned char c : piece) {
+            symbols.emplace_back(1, static_cast<char>(c));
+        }
+
+        while (symbols.size() > 1) {
+            int best_rank = std::numeric_limits<int>::max();
+            size_t best_idx = 0;
+            bool found = false;
+
+            for (size_t i = 0; i + 1 < symbols.size(); ++i) {
+                std::string merged = symbols[i] + symbols[i + 1];
+                auto it = token_to_id_.find(merged);
+                if (it == token_to_id_.end()) continue;
+                if (it->second < best_rank) {
+                    best_rank = it->second;
+                    best_idx = i;
+                    found = true;
+                }
+            }
+
+            if (!found) break;
+            symbols[best_idx] += symbols[best_idx + 1];
+            symbols.erase(symbols.begin() + best_idx + 1);
+        }
+
+        std::vector<int> token_ids;
+        token_ids.reserve(symbols.size());
+        for (const auto& sym : symbols) {
+            auto it = token_to_id_.find(sym);
+            if (it == token_to_id_.end()) {
+                throw std::runtime_error("tokenizer: missing token for symbol");
+            }
+            token_ids.push_back(it->second);
+        }
+        return token_ids;
+    }
 
 
     void load_token_file() {
