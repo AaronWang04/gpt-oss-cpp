@@ -25,3 +25,8 @@ then build the project and run it
 ```
 cmake --build build && ./build/gptoss
 ```
+
+TODO:
+- make it an actual serving engine by processing multiple requests (batching, memory handling, scheduling, etc)
+- some profiling/performance stuff?
+- megakernel?
