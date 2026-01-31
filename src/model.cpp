@@ -51,6 +51,7 @@ const Config20B kConfig20B = {
 Embedding::Embedding(Checkpoint& checkpoint) {
     weight = checkpoint.get_bf16_ptr("embedding.weight");
     weight_count = checkpoint.get_bf16_count("embedding.weight");
+    hidden_size = kConfig20B.hidden_size;
 }
 
 AttentionBlock::AttentionBlock(Checkpoint& checkpoint, int layer_idx) {
@@ -67,6 +68,7 @@ AttentionBlock::AttentionBlock(Checkpoint& checkpoint, int layer_idx) {
     out_bias_count = checkpoint.get_bf16_count(prefix + "out.bias");
     sinks = checkpoint.get_bf16_ptr(prefix + "sinks");
     sinks_count = checkpoint.get_bf16_count(prefix + "sinks");
+    hidden_size = kConfig20B.hidden_size;
 }
 
 MLPBlock::MLPBlock(Checkpoint& checkpoint, int layer_idx) {
@@ -89,14 +91,19 @@ MLPBlock::MLPBlock(Checkpoint& checkpoint, int layer_idx) {
     mlp2_weight_blocks_count = checkpoint.get_u8_count(prefix + "mlp2_weight.blocks");
     mlp2_weight_scales = checkpoint.get_u8_ptr(prefix + "mlp2_weight.scales");
     mlp2_weight_scales_count = checkpoint.get_u8_count(prefix + "mlp2_weight.scales");
+    hidden_size = kConfig20B.hidden_size;
 }
 
 TransformerBlock::TransformerBlock(Checkpoint& checkpoint, int layer_idx)
-    : attn(checkpoint, layer_idx), mlp(checkpoint, layer_idx) {}
+    : attn(checkpoint, layer_idx), mlp(checkpoint, layer_idx) {
+    hidden_size = kConfig20B.hidden_size;
+}
 
 UnEmbedding::UnEmbedding(Checkpoint& checkpoint) {
     weight = checkpoint.get_bf16_ptr("unembedding.weight");
     weight_count = checkpoint.get_bf16_count("unembedding.weight");
+    hidden_size = kConfig20B.hidden_size;
+    vocab_size = kConfig20B.vocab_size;
 }
 
 GPTOSSModel::GPTOSSModel(Checkpoint& checkpoint) : embedding(checkpoint), unembedding(checkpoint) {
