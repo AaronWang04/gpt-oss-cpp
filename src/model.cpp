@@ -166,16 +166,13 @@ public:
 class GPTOSSModel {
 
 public:
-    GPTOSSModel(Checkpoint& checkpoint)
-        : embedding(checkpoint),
-          unembedding(checkpoint) {
+    GPTOSSModel(Checkpoint& checkpoint) : embedding(checkpoint), unembedding(checkpoint) {
         norm_scale = checkpoint.get_bf16_ptr("norm.scale");
         norm_scale_count = checkpoint.get_bf16_count("norm.scale");
         blocks.reserve(kConfig20B.num_hidden_layers);
         for (int layer_idx = 0; layer_idx < kConfig20B.num_hidden_layers; ++layer_idx) {
             blocks.emplace_back(checkpoint, layer_idx);
         }
-
     }
 
     ~GPTOSSModel() = default;
