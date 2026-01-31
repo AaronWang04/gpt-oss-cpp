@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "../src/checkpoint.cpp"
+#include "checkpoint.h"
 
 int main() {
     try {
@@ -17,4 +17,3 @@ int main() {
         return 1;
     }
 }
-

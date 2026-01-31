@@ -1,18 +1,18 @@
+#include "tokenizer.h"
+
 #include <array>
 #include <cstdint>
 #include <fstream>
 #include <limits>
 #include <memory>
 #include <stdexcept>
-#include <string>
 #include <string_view>
-#include <vector>
-#include <unordered_map>
 
 // regex engine that supports unicode cuz std::regex is only ECMAScript
 #include <unicode/regex.h>
 #include <unicode/unistr.h>
 
+namespace {
 
 constexpr const char* kO200kPatStr =
     "[^\\r\\n\\p{L}\\p{N}]?[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]*[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)"
@@ -38,7 +38,7 @@ std::string base64_decode(std::string_view input) {
     std::string output;
     unsigned int buffer = 0;
     int bits_collected = 0;
-    output.reserve(input.size()*3/4);
+    output.reserve(input.size() * 3 / 4);
     for (char c : input) {
         if (c == '=') break;
         int8_t val = table[c];
@@ -55,127 +55,120 @@ std::string base64_decode(std::string_view input) {
     return output;
 }
 
-class Tokenizer {
-public:
-    explicit Tokenizer(const std::string& path) {
-        path_ = path;
-        load_token_file();
-    }
+}  // namespace
 
-    ~Tokenizer() = default;
-    
-    // byte-pair encoding
-    std::vector<int> encode(std::string text) const {
-        if (text.empty()) return {};
-        auto start = text.find("<|");
-        if (start != std::string::npos) {
-            auto end = text.find("|>", start + 2);
-            if (end != std::string::npos) {
-                throw std::runtime_error("special token handling to be implemneted");
-            }
+Tokenizer::Tokenizer(const std::string& path) {
+    path_ = path;
+    load_token_file();
+}
+
+Tokenizer::~Tokenizer() = default;
+
+std::vector<int> Tokenizer::encode(std::string text) const {
+    if (text.empty()) return {};
+    auto start = text.find("<|");
+    if (start != std::string::npos) {
+        auto end = text.find("|>", start + 2);
+        if (end != std::string::npos) {
+            throw std::runtime_error("special token handling to be implemneted");
         }
-        std::vector<int> token_ids;
-        auto pieces = regex_split(text, kO200kPatStr);
-        for (const auto& piece : pieces) {
-            auto piece_tokens = bpe_encode_piece(piece);
-            token_ids.insert(token_ids.end(), piece_tokens.begin(), piece_tokens.end());
-        }
-        return token_ids;
+    }
+    std::vector<int> token_ids;
+    auto pieces = regex_split(text, kO200kPatStr);
+    for (const auto& piece : pieces) {
+        auto piece_tokens = bpe_encode_piece(piece);
+        token_ids.insert(token_ids.end(), piece_tokens.begin(), piece_tokens.end());
+    }
+    return token_ids;
+}
+
+std::string Tokenizer::decode(int token) const {
+    return id_to_token_[token];
+}
+
+std::vector<std::string> Tokenizer::regex_split(
+    const std::string& text,
+    const std::string& pattern) const {
+    UErrorCode status = U_ZERO_ERROR;
+    icu::UnicodeString pattern_u = icu::UnicodeString::fromUTF8(pattern);
+    std::unique_ptr<icu::RegexPattern> re(icu::RegexPattern::compile(pattern_u, 0, status));
+    if (U_FAILURE(status)) {
+        throw std::runtime_error("tokenizer: failed to compile ICU regex");
     }
 
-    std::string decode(int token) const {
-        return id_to_token_[token];
+    icu::UnicodeString text_u = icu::UnicodeString::fromUTF8(text);
+    std::unique_ptr<icu::RegexMatcher> matcher(re->matcher(text_u, status));
+    if (U_FAILURE(status)) {
+        throw std::runtime_error("tokenizer: failed to create ICU matcher");
     }
 
-    std::vector<std::string> regex_split(const std::string& text, const std::string& pattern) const {
-        UErrorCode status = U_ZERO_ERROR;
-        icu::UnicodeString pattern_u = icu::UnicodeString::fromUTF8(pattern);
-        std::unique_ptr<icu::RegexPattern> re(icu::RegexPattern::compile(pattern_u, 0, status));
+    std::vector<std::string> pieces;
+    while (matcher->find(status)) {
         if (U_FAILURE(status)) {
-            throw std::runtime_error("tokenizer: failed to compile ICU regex");
+            throw std::runtime_error("tokenizer: ICU regex match failed");
         }
-
-        icu::UnicodeString text_u = icu::UnicodeString::fromUTF8(text);
-        std::unique_ptr<icu::RegexMatcher> matcher(re->matcher(text_u, status));
+        icu::UnicodeString match = matcher->group(status);
         if (U_FAILURE(status)) {
-            throw std::runtime_error("tokenizer: failed to create ICU matcher");
+            throw std::runtime_error("tokenizer: ICU regex group failed");
         }
+        std::string out;
+        match.toUTF8String(out);
+        pieces.push_back(out);
+    }
+    return pieces;
+}
 
-        std::vector<std::string> pieces;
-        while (matcher->find(status)) {
-            if (U_FAILURE(status)) {
-                throw std::runtime_error("tokenizer: ICU regex match failed");
-            }
-            icu::UnicodeString match = matcher->group(status);
-            if (U_FAILURE(status)) {
-                throw std::runtime_error("tokenizer: ICU regex group failed");
-            }
-            std::string out;
-            match.toUTF8String(out);
-            pieces.push_back(out);
-        }
-        return pieces;
+std::vector<int> Tokenizer::bpe_encode_piece(const std::string& piece) const {
+    if (piece.empty()) return {};
+    std::vector<std::string> symbols;
+    symbols.reserve(piece.size());
+    for (unsigned char c : piece) {
+        symbols.emplace_back(1, static_cast<char>(c));
     }
 
-private:
-    std::string path_;
-    std::vector<std::string> id_to_token_;
-    std::unordered_map<std::string, int> token_to_id_;
+    while (symbols.size() > 1) {
+        int best_rank = std::numeric_limits<int>::max();
+        size_t best_idx = 0;
+        bool found = false;
 
-    std::vector<int> bpe_encode_piece(const std::string& piece) const {
-        if (piece.empty()) return {};
-        std::vector<std::string> symbols;
-        symbols.reserve(piece.size());
-        for (unsigned char c : piece) {
-            symbols.emplace_back(1, static_cast<char>(c));
-        }
-
-        while (symbols.size() > 1) {
-            int best_rank = std::numeric_limits<int>::max();
-            size_t best_idx = 0;
-            bool found = false;
-
-            for (size_t i = 0; i + 1 < symbols.size(); ++i) {
-                std::string merged = symbols[i] + symbols[i + 1];
-                auto it = token_to_id_.find(merged);
-                if (it == token_to_id_.end()) continue;
-                if (it->second < best_rank) {
-                    best_rank = it->second;
-                    best_idx = i;
-                    found = true;
-                }
+        for (size_t i = 0; i + 1 < symbols.size(); ++i) {
+            std::string merged = symbols[i] + symbols[i + 1];
+            auto it = token_to_id_.find(merged);
+            if (it == token_to_id_.end()) continue;
+            if (it->second < best_rank) {
+                best_rank = it->second;
+                best_idx = i;
+                found = true;
             }
-
-            if (!found) break;
-            symbols[best_idx] += symbols[best_idx + 1];
-            symbols.erase(symbols.begin() + best_idx + 1);
         }
 
-        std::vector<int> token_ids;
-        token_ids.reserve(symbols.size());
-        for (const auto& sym : symbols) {
-            auto it = token_to_id_.find(sym);
-            if (it == token_to_id_.end()) {
-                throw std::runtime_error("tokenizer: missing token for symbol");
-            }
-            token_ids.push_back(it->second);
-        }
-        return token_ids;
+        if (!found) break;
+        symbols[best_idx] += symbols[best_idx + 1];
+        symbols.erase(symbols.begin() + best_idx + 1);
     }
 
-
-    void load_token_file() {
-        std::ifstream file(path_);
-        std::string line;
-        while (std::getline(file, line)) {
-            if (line.empty()) break;
-            int space_idx = line.find(' ');
-            std::string_view b64_token(line.data(), space_idx);
-            const int token_id = std::stoi(line.substr(space_idx+1));
-            std::string token = base64_decode(b64_token);
-            token_to_id_[token] = token_id;
-            id_to_token_.push_back(std::move(token));
+    std::vector<int> token_ids;
+    token_ids.reserve(symbols.size());
+    for (const auto& sym : symbols) {
+        auto it = token_to_id_.find(sym);
+        if (it == token_to_id_.end()) {
+            throw std::runtime_error("tokenizer: missing token for symbol");
         }
+        token_ids.push_back(it->second);
     }
+    return token_ids;
+}
 
-};
+void Tokenizer::load_token_file() {
+    std::ifstream file(path_);
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty()) break;
+        int space_idx = line.find(' ');
+        std::string_view b64_token(line.data(), space_idx);
+        const int token_id = std::stoi(line.substr(space_idx + 1));
+        std::string token = base64_decode(b64_token);
+        token_to_id_[token] = token_id;
+        id_to_token_.push_back(std::move(token));
+    }
+}

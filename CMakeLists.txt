@@ -19,12 +19,21 @@ endif()
 find_package(ICU REQUIRED COMPONENTS uc i18n)
 
 # Main binary
-add_executable(gptoss src/main.cpp)
+add_executable(
+  gptoss
+  src/main.cpp
+  src/checkpoint.cpp
+  src/tokenizer.cpp
+  src/model.cpp
+  src/kernels.cpp
+)
+target_include_directories(gptoss PRIVATE includes)
 target_link_libraries(gptoss PRIVATE ICU::uc ICU::i18n)
 
 # Tests
 include(CTest)
 if (BUILD_TESTING)
-  add_executable(checkpoint_test tests/checkpoint_test.cpp)
+  add_executable(checkpoint_test tests/checkpoint_test.cpp src/checkpoint.cpp)
+  target_include_directories(checkpoint_test PRIVATE includes)
   add_test(NAME checkpoint_test COMMAND checkpoint_test)
 endif()
