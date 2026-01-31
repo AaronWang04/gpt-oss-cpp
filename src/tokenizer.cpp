@@ -83,6 +83,9 @@ std::vector<int> Tokenizer::encode(std::string text) const {
 }
 
 std::string Tokenizer::decode(int token) const {
+    if (token < 0 || static_cast<std::size_t>(token) >= id_to_token_.size()) {
+        return "<unk>";
+    }
     return id_to_token_[token];
 }
 

@@ -14,9 +14,6 @@ def main(args):
     device = init_distributed()
     tokenizer = get_tokenizer()
     tokens = tokenizer.encode(args.prompt)
-    print(tokens)
-    print(tokenizer.decode(tokens))
-    exit()
 
     generator = TorchGenerator(args.checkpoint, device=device)
 

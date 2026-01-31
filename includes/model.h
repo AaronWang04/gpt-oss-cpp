@@ -42,6 +42,7 @@ private:
     const std::uint16_t* sinks{nullptr};
     std::size_t sinks_count{0};
     std::size_t hidden_size{0};
+    std::size_t sliding_window{0};
 };
 
 class MLPBlock {
@@ -105,6 +106,9 @@ class GPTOSSModel {
 public:
     explicit GPTOSSModel(Checkpoint& checkpoint);
     ~GPTOSSModel();
+    void forward(std::span<const std::int32_t> token_ids,
+                 std::span<float> logits,
+                 std::size_t seq_len) const;
 
 private:
     Embedding embedding;
