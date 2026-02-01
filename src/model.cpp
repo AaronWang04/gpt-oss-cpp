@@ -78,6 +78,14 @@ Embedding::Embedding(Checkpoint& checkpoint) {
     hidden_size = kConfig20B.hidden_size;
 }
 
+void Embedding::forward(std::span<const std::int32_t> token_id,
+                        std::span<float> out,
+                        std::size_t seq_len) const {
+    require_count("embedding.weight", weight_count, kConfig20B.vocab_size * kConfig20B.hidden_size);
+    embedding_lookup(weight, kConfig20B.vocab_size, hidden_size, token_id, out);
+}
+
+
 AttentionBlock::AttentionBlock(Checkpoint& checkpoint, int layer_idx) {
     std::string prefix = "block." + std::to_string(layer_idx) + ".attn.";
     norm_scale = checkpoint.get_bf16_ptr(prefix + "norm.scale");
@@ -94,60 +102,6 @@ AttentionBlock::AttentionBlock(Checkpoint& checkpoint, int layer_idx) {
     sinks_count = checkpoint.get_bf16_count(prefix + "sinks");
     hidden_size = kConfig20B.hidden_size;
     sliding_window = (layer_idx % 2 == 0) ? static_cast<std::size_t>(kConfig20B.sliding_window) : 0;
-}
-
-MLPBlock::MLPBlock(Checkpoint& checkpoint, int layer_idx) {
-    std::string prefix = "block." + std::to_string(layer_idx) + ".mlp.";
-    norm_scale = checkpoint.get_bf16_ptr(prefix + "norm.scale");
-    norm_scale_count = checkpoint.get_bf16_count(prefix + "norm.scale");
-    gate_weight = checkpoint.get_bf16_ptr(prefix + "gate.weight");
-    gate_weight_count = checkpoint.get_bf16_count(prefix + "gate.weight");
-    gate_bias = checkpoint.get_bf16_ptr(prefix + "gate.bias");
-    gate_bias_count = checkpoint.get_bf16_count(prefix + "gate.bias");
-    mlp1_bias = checkpoint.get_bf16_ptr(prefix + "mlp1_bias");
-    mlp1_bias_count = checkpoint.get_bf16_count(prefix + "mlp1_bias");
-    mlp2_bias = checkpoint.get_bf16_ptr(prefix + "mlp2_bias");
-    mlp2_bias_count = checkpoint.get_bf16_count(prefix + "mlp2_bias");
-    mlp1_weight_blocks = checkpoint.get_u8_ptr(prefix + "mlp1_weight.blocks");
-    mlp1_weight_blocks_count = checkpoint.get_u8_count(prefix + "mlp1_weight.blocks");
-    mlp1_weight_scales = checkpoint.get_u8_ptr(prefix + "mlp1_weight.scales");
-    mlp1_weight_scales_count = checkpoint.get_u8_count(prefix + "mlp1_weight.scales");
-    mlp2_weight_blocks = checkpoint.get_u8_ptr(prefix + "mlp2_weight.blocks");
-    mlp2_weight_blocks_count = checkpoint.get_u8_count(prefix + "mlp2_weight.blocks");
-    mlp2_weight_scales = checkpoint.get_u8_ptr(prefix + "mlp2_weight.scales");
-    mlp2_weight_scales_count = checkpoint.get_u8_count(prefix + "mlp2_weight.scales");
-    hidden_size = kConfig20B.hidden_size;
-}
-
-TransformerBlock::TransformerBlock(Checkpoint& checkpoint, int layer_idx)
-    : attn(checkpoint, layer_idx), mlp(checkpoint, layer_idx) {
-    hidden_size = kConfig20B.hidden_size;
-}
-
-UnEmbedding::UnEmbedding(Checkpoint& checkpoint) {
-    weight = checkpoint.get_bf16_ptr("unembedding.weight");
-    weight_count = checkpoint.get_bf16_count("unembedding.weight");
-    hidden_size = kConfig20B.hidden_size;
-    vocab_size = kConfig20B.vocab_size;
-}
-
-GPTOSSModel::GPTOSSModel(Checkpoint& checkpoint) : embedding(checkpoint), unembedding(checkpoint) {
-    norm_scale = checkpoint.get_bf16_ptr("norm.scale");
-    norm_scale_count = checkpoint.get_bf16_count("norm.scale");
-    blocks.reserve(kConfig20B.num_hidden_layers);
-    for (int layer_idx = 0; layer_idx < kConfig20B.num_hidden_layers; ++layer_idx) {
-        blocks.emplace_back(checkpoint, layer_idx);
-    }
-}
-
-GPTOSSModel::~GPTOSSModel() = default;
-
-void Embedding::forward(std::span<const std::int32_t> token_id,
-                        std::span<float> out,
-                        std::size_t seq_len) const {
-    require_count("embedding.weight", weight_count,
-                  kConfig20B.vocab_size * kConfig20B.hidden_size);
-    embedding_lookup(weight, kConfig20B.vocab_size, hidden_size, token_id, out);
 }
 
 void AttentionBlock::forward(std::span<const float> x,
@@ -206,6 +160,30 @@ void AttentionBlock::forward(std::span<const float> x,
     for (std::size_t i = 0; i < out.size(); ++i) {
         out[i] = x[i] + projected[i];
     }
+}
+
+
+MLPBlock::MLPBlock(Checkpoint& checkpoint, int layer_idx) {
+    std::string prefix = "block." + std::to_string(layer_idx) + ".mlp.";
+    norm_scale = checkpoint.get_bf16_ptr(prefix + "norm.scale");
+    norm_scale_count = checkpoint.get_bf16_count(prefix + "norm.scale");
+    gate_weight = checkpoint.get_bf16_ptr(prefix + "gate.weight");
+    gate_weight_count = checkpoint.get_bf16_count(prefix + "gate.weight");
+    gate_bias = checkpoint.get_bf16_ptr(prefix + "gate.bias");
+    gate_bias_count = checkpoint.get_bf16_count(prefix + "gate.bias");
+    mlp1_bias = checkpoint.get_bf16_ptr(prefix + "mlp1_bias");
+    mlp1_bias_count = checkpoint.get_bf16_count(prefix + "mlp1_bias");
+    mlp2_bias = checkpoint.get_bf16_ptr(prefix + "mlp2_bias");
+    mlp2_bias_count = checkpoint.get_bf16_count(prefix + "mlp2_bias");
+    mlp1_weight_blocks = checkpoint.get_u8_ptr(prefix + "mlp1_weight.blocks");
+    mlp1_weight_blocks_count = checkpoint.get_u8_count(prefix + "mlp1_weight.blocks");
+    mlp1_weight_scales = checkpoint.get_u8_ptr(prefix + "mlp1_weight.scales");
+    mlp1_weight_scales_count = checkpoint.get_u8_count(prefix + "mlp1_weight.scales");
+    mlp2_weight_blocks = checkpoint.get_u8_ptr(prefix + "mlp2_weight.blocks");
+    mlp2_weight_blocks_count = checkpoint.get_u8_count(prefix + "mlp2_weight.blocks");
+    mlp2_weight_scales = checkpoint.get_u8_ptr(prefix + "mlp2_weight.scales");
+    mlp2_weight_scales_count = checkpoint.get_u8_count(prefix + "mlp2_weight.scales");
+    hidden_size = kConfig20B.hidden_size;
 }
 
 void MLPBlock::forward(std::span<const float> x,
@@ -300,6 +278,12 @@ void MLPBlock::forward(std::span<const float> x,
     }
 }
 
+
+TransformerBlock::TransformerBlock(Checkpoint& checkpoint, int layer_idx)
+    : attn(checkpoint, layer_idx), mlp(checkpoint, layer_idx) {
+    hidden_size = kConfig20B.hidden_size;
+}
+
 void TransformerBlock::forward(std::span<const float> x,
                                std::span<float> out,
                                std::size_t seq_len) const {
@@ -308,11 +292,31 @@ void TransformerBlock::forward(std::span<const float> x,
     mlp.forward(attn_out, out, seq_len);
 }
 
+
+UnEmbedding::UnEmbedding(Checkpoint& checkpoint) {
+    weight = checkpoint.get_bf16_ptr("unembedding.weight");
+    weight_count = checkpoint.get_bf16_count("unembedding.weight");
+    hidden_size = kConfig20B.hidden_size;
+    vocab_size = kConfig20B.vocab_size;
+}
+
 void UnEmbedding::forward(std::span<const float> x,
                           std::span<float> out,
                           std::size_t seq_len) const {
     unembedding_logits(weight, vocab_size, hidden_size, x, out);
 }
+
+
+GPTOSSModel::GPTOSSModel(Checkpoint& checkpoint) : embedding(checkpoint), unembedding(checkpoint) {
+    norm_scale = checkpoint.get_bf16_ptr("norm.scale");
+    norm_scale_count = checkpoint.get_bf16_count("norm.scale");
+    blocks.reserve(kConfig20B.num_hidden_layers);
+    for (int layer_idx = 0; layer_idx < kConfig20B.num_hidden_layers; ++layer_idx) {
+        blocks.emplace_back(checkpoint, layer_idx);
+    }
+}
+
+GPTOSSModel::~GPTOSSModel() = default;
 
 void GPTOSSModel::forward(std::span<const std::int32_t> token_ids,
                           std::span<float> logits,
