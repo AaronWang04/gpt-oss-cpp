@@ -7,6 +7,7 @@
 #include "checkpoint.h"
 #include "model.h"
 #include "tokenizer.h"
+#include "util.h"
 
 int main(int argc, char* argv[]) {
     const std::string model_path = "gpt-oss-20b-model/original/model.safetensors";
@@ -14,24 +15,25 @@ int main(int argc, char* argv[]) {
     const std::size_t vocab_size = 201088;
 
     // inference params
-    const std::string prompt = (argc > 1) ? argv[1] : "Hello";
-    const std::size_t max_new_tokens = 16;
-    std::cerr << "loading checkpoint\n";
-    Checkpoint checkpoint(model_path);
-    std::cerr << "loading tokenizer\n";
-    Tokenizer tokenizer(tokenizer_path);
+    const std::string prompt = (argc > 1) ? argv[1] : "hello my name is bob";
+    const std::size_t max_tokens = 16;
 
-    std::cerr << "building model\n";
+    std::cout << "loading checkpoint" << std::endl;
+    Checkpoint checkpoint(model_path);
+    std::cout << "loading tokenizer" << std::endl;
+    Tokenizer tokenizer(tokenizer_path);
+    std::cout << "building model" << std::endl;
     GPTOSSModel model(checkpoint);
 
     std::vector<int> tokens = tokenizer.encode(prompt);
-    std::cerr << "prompt tokens=" << tokens.size() << "\n";
+
+    std::cout << "prompt tokens=" << tokens.size() << "\n";
     if (tokens.empty()) {
-        std::cerr << "prompt produced no tokens; aborting.\n";
-        return 1;
+        throw std::runtime_error("prompt produced no tokens");
     }
-    std::cout << prompt;
-    for (std::size_t step = 0; step < max_new_tokens; ++step) {
+
+    std::cout << prompt << std::endl;
+    for (std::size_t step = 0; step < max_tokens; ++step) {
         const std::size_t seq_len = tokens.size();
         std::vector<float> logits(seq_len * vocab_size, 0.0f);
 
@@ -42,8 +44,10 @@ int main(int argc, char* argv[]) {
         const auto it = std::max_element(last_logits, last_logits + vocab_size);
         const int next_token = static_cast<int>(std::distance(last_logits, it));
 
+
         tokens.push_back(next_token);
-        std::cout << tokenizer.decode(next_token);
+        std::cout << "next token: " << next_token << ' ' << tokenizer.decode(next_token) << std::endl;
+        // std::cout << tokenizer.decode(next_token);
         std::cout.flush();
     }
 

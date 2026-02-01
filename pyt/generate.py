@@ -14,17 +14,18 @@ def main(args):
     device = init_distributed()
     tokenizer = get_tokenizer()
     tokens = tokenizer.encode(args.prompt)
+    print(tokens)
 
     generator = TorchGenerator(args.checkpoint, device=device)
 
     max_tokens = None if args.limit == 0 else args.limit
-    temperature = 1.0
+    temperature = 0.0
 
     for token, logprob in generator.generate(tokens, stop_tokens=[tokenizer.eot_token], temperature=temperature, max_tokens=max_tokens, return_logprobs=True):
         tokens.append(token)
         token_text = tokenizer.decode([token])
         print(
-            f"Generated token: {repr(token_text)}, logprob: {logprob}"
+            f"Generated token: {token} {repr(token_text)}, logprob: {logprob}"
         )
 
 

@@ -22,8 +22,6 @@ struct TensorMeta_ {
     std::size_t byte_size{0};
 };
 
-std::ostream& operator<<(std::ostream& os, const TensorMeta_& T);
-
 class Checkpoint {
 public:
     explicit Checkpoint(const std::string& path);

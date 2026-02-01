@@ -26,6 +26,7 @@ add_executable(
   src/tokenizer.cpp
   src/model.cpp
   src/kernels.cpp
+  src/utils.cpp
 )
 target_include_directories(gptoss PRIVATE includes)
 target_link_libraries(gptoss PRIVATE ICU::uc ICU::i18n)
@@ -33,7 +34,7 @@ target_link_libraries(gptoss PRIVATE ICU::uc ICU::i18n)
 # Tests
 include(CTest)
 if (BUILD_TESTING)
-  add_executable(checkpoint_test tests/checkpoint_test.cpp src/checkpoint.cpp)
+  add_executable(checkpoint_test tests/checkpoint_test.cpp src/checkpoint.cpp src/utils.cpp)
   target_include_directories(checkpoint_test PRIVATE includes)
   add_test(NAME checkpoint_test COMMAND checkpoint_test)
 endif()
