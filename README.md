@@ -1,6 +1,6 @@
 Attempt at lightweight, standalone c++ inference engine for gpt-oss
 
-download the model
+download the model (may need huggingface-hub)
 ```
 hf download openai/gpt-oss-20b --include "original/*" --local-dir gpt-oss-20b-model/
 hf download openai/gpt-oss-20b --include "*config" --local-dir gpt-oss-20b-model/
@@ -27,6 +27,7 @@ cmake --build build && ./build/gptoss
 ```
 
 TODO:
+- KV CACHING
 - make it an actual serving engine by processing multiple requests (batching, memory handling, scheduling, etc)
 - some profiling/performance stuff?
 - megakernel?
