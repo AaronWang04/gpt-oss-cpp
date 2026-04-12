@@ -58,15 +58,26 @@ std::string base64_decode(std::string_view input) {
 
 }  // namespace
 
-Tokenizer::Tokenizer(const std::string& path) {
-    path_ = path;
-    load_token_file();
+Tokenizer::Tokenizer(const std::string& path) : path_(path) {
+    std::ifstream file(path_);
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty()) break;
+        int space_idx = line.find(' ');
+        std::string_view b64_token(line.data(), space_idx);
+        const std::int32_t token_id = std::stoi(line.substr(space_idx + 1));
+        std::string token = base64_decode(b64_token);
+        token_to_id_[token] = token_id;
+        id_to_token_.push_back(std::move(token));
+    }
 }
 
 Tokenizer::~Tokenizer() = default;
 
-std::vector<int> Tokenizer::encode(std::string text) const {
+std::vector<std::int32_t> Tokenizer::encode(std::string text) const {
     if (text.empty()) return {};
+
+    // throw error if special token found for now
     auto start = text.find("<|");
     if (start != std::string::npos) {
         auto end = text.find("|>", start + 2);
@@ -74,7 +85,9 @@ std::vector<int> Tokenizer::encode(std::string text) const {
             throw std::runtime_error("special token handling to be implemneted");
         }
     }
-    std::vector<int> token_ids;
+
+
+    std::vector<std::int32_t> token_ids;
     auto pieces = regex_split(text, kO200kPatStr);
     for (const auto& piece : pieces) {
         auto piece_tokens = bpe_encode_piece(piece);
@@ -83,7 +96,7 @@ std::vector<int> Tokenizer::encode(std::string text) const {
     return token_ids;
 }
 
-std::string Tokenizer::decode(int token) const {
+std::string Tokenizer::decode(std::int32_t token) const {
     if (token < 0 || static_cast<std::size_t>(token) >= id_to_token_.size()) {
         return "<unk>";
     }
@@ -122,36 +135,39 @@ std::vector<std::string> Tokenizer::regex_split(
     return pieces;
 }
 
-std::vector<int> Tokenizer::bpe_encode_piece(const std::string& piece) const {
+std::vector<std::int32_t> Tokenizer::bpe_encode_piece(const std::string& piece) const {
     if (piece.empty()) return {};
     std::vector<std::string> symbols;
     symbols.reserve(piece.size());
     for (unsigned char c : piece) {
+        // fill constructor works best here
+        // allows for converting char to string whilst perfect forwarding
         symbols.emplace_back(1, static_cast<char>(c));
     }
 
     while (symbols.size() > 1) {
-        int best_rank = std::numeric_limits<int>::max();
+        std::int32_t best_rank = std::numeric_limits<std::int32_t>::max();
         size_t best_idx = 0;
-        bool found = false;
 
         for (size_t i = 0; i + 1 < symbols.size(); ++i) {
             std::string merged = symbols[i] + symbols[i + 1];
             auto it = token_to_id_.find(merged);
+            // pair does not exist
             if (it == token_to_id_.end()) continue;
+            // greedily merge the lowest rank
             if (it->second < best_rank) {
                 best_rank = it->second;
                 best_idx = i;
-                found = true;
             }
         }
-
-        if (!found) break;
+        
+        // no pairs found
+        if (best_rank == std::numeric_limits<std::int32_t>::max()) break;
         symbols[best_idx] += symbols[best_idx + 1];
         symbols.erase(symbols.begin() + best_idx + 1);
     }
 
-    std::vector<int> token_ids;
+    std::vector<std::int32_t> token_ids;
     token_ids.reserve(symbols.size());
     for (const auto& sym : symbols) {
         auto it = token_to_id_.find(sym);
@@ -161,18 +177,4 @@ std::vector<int> Tokenizer::bpe_encode_piece(const std::string& piece) const {
         token_ids.push_back(it->second);
     }
     return token_ids;
-}
-
-void Tokenizer::load_token_file() {
-    std::ifstream file(path_);
-    std::string line;
-    while (std::getline(file, line)) {
-        if (line.empty()) break;
-        int space_idx = line.find(' ');
-        std::string_view b64_token(line.data(), space_idx);
-        const int token_id = std::stoi(line.substr(space_idx + 1));
-        std::string token = base64_decode(b64_token);
-        token_to_id_[token] = token_id;
-        id_to_token_.push_back(std::move(token));
-    }
 }

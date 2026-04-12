@@ -52,7 +52,7 @@ private:
     std::unordered_map<std::string, TensorMeta_> meta_;
     std::byte* weights{nullptr};
     std::string path_;
-    int fd_{-1};
+    int file_descriptor_{-1};
     void* map_base_{nullptr};
     std::size_t map_length_{0};
 

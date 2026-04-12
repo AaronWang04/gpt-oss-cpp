@@ -25,7 +25,7 @@ int main(int argc, char* argv[]) {
     std::cout << "building model" << std::endl;
     GPTOSSModel model(checkpoint);
 
-    std::vector<int> tokens = tokenizer.encode(prompt);
+    std::vector<std::int32_t> tokens = tokenizer.encode(prompt);
 
     std::cout << "prompt tokens=" << tokens.size() << "\n";
     if (tokens.empty()) {
@@ -37,13 +37,12 @@ int main(int argc, char* argv[]) {
         const std::size_t seq_len = tokens.size();
         std::vector<float> logits(seq_len * vocab_size, 0.0f);
 
-        std::vector<std::int32_t> token_ids(tokens.begin(), tokens.end());
-        model.forward(token_ids, logits, seq_len);
-
+        model.forward(tokens, logits, seq_len);
+        
         const float* last_logits = logits.data() + (seq_len - 1) * vocab_size;
+        // temperature not implemented yet, pick highest probability token
         const auto it = std::max_element(last_logits, last_logits + vocab_size);
         const int next_token = static_cast<int>(std::distance(last_logits, it));
-
 
         tokens.push_back(next_token);
         std::cout << "next token: " << next_token << ' ' << tokenizer.decode(next_token) << std::endl;

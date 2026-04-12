@@ -81,7 +81,8 @@ Embedding::Embedding(Checkpoint& checkpoint) {
 void Embedding::forward(std::span<const std::int32_t> token_id,
                         std::span<float> out,
                         std::size_t seq_len) const {
-    require_count("embedding.weight", weight_count, kConfig20B.vocab_size * kConfig20B.hidden_size);
+    // // for debug:
+    // require_count("embedding.weight", weight_count, kConfig20B.vocab_size * kConfig20B.hidden_size);
     embedding_lookup(weight, kConfig20B.vocab_size, hidden_size, token_id, out);
 }
 

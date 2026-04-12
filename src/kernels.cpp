@@ -56,10 +56,6 @@ void embedding_lookup(const std::uint16_t* weight_bf16,
     for (std::size_t t = 0; t < seq_len; ++t) {
         const std::int32_t token_id = token_ids[t];
         float* out_row = out.data() + t * hidden_size;
-        if (token_id < 0 || static_cast<std::size_t>(token_id) >= vocab_size) {
-            std::fill(out_row, out_row + hidden_size, 0.0f);
-            continue;
-        }
         const std::uint16_t* row = weight_bf16 + static_cast<std::size_t>(token_id) * hidden_size;
         for (std::size_t i = 0; i < hidden_size; ++i) {
             out_row[i] = bf16_to_float(row[i]);

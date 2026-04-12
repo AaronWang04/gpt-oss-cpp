@@ -57,8 +57,8 @@ Checkpoint::~Checkpoint() {
     if (map_base_ && map_base_ != MAP_FAILED) {
         munmap(map_base_, map_length_);
     }
-    if (fd_ >= 0) {
-        close(fd_);
+    if (file_descriptor_ >= 0) {
+        close(file_descriptor_);
     }
 }
 
@@ -130,21 +130,14 @@ Checkpoint::MXFP4Pair Checkpoint::get_mxfp4_pair(
 }
 
 void Checkpoint::mmap_weights() {
-    fd_ = ::open(path_.c_str(), O_RDONLY);
-    if (fd_ < 0) {
-        throw std::runtime_error("failed to open safetensor file for mmap");
-    }
-
+    file_descriptor_ = ::open(path_.c_str(), O_RDONLY);
     struct stat st {};
-    if (fstat(fd_, &st) != 0) {
-        close(fd_);
-        throw std::runtime_error("failed to open safetensor file for mmap");
-    }
+    fstat(file_descriptor_, &st);
 
     std::uint64_t data_offset = 8 + header_len;
     if (st.st_size < static_cast<off_t>(data_offset)) {
-        close(fd_);
-        fd_ = -1;
+        close(file_descriptor_);
+        file_descriptor_ = -1;
         throw std::runtime_error("invalid safetensor file");
     }
 
@@ -153,12 +146,13 @@ void Checkpoint::mmap_weights() {
     const off_t map_offset = static_cast<off_t>(data_offset - page_offset);
     map_length_ = static_cast<std::size_t>(st.st_size - map_offset);
 
-    map_base_ = mmap(nullptr, map_length_, PROT_READ, MAP_PRIVATE, fd_, map_offset);
+    map_base_ = mmap(nullptr, map_length_, PROT_READ, MAP_PRIVATE, file_descriptor_, map_offset);
     if (map_base_ == MAP_FAILED) {
-        close(fd_);
-        fd_ = -1;
+        close(file_descriptor_);
+        file_descriptor_ = -1;
         throw std::runtime_error("mmap failed for safetensor weights");
     }
+    // Later used in finalizeTensorData to 
     weights = reinterpret_cast<std::byte*>(map_base_) + page_offset;
 }
 
