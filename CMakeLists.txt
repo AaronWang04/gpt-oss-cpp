@@ -17,6 +17,7 @@ if (APPLE)
   endforeach()
 endif()
 
+find_package(OpenMP REQUIRED)
 find_package(ICU REQUIRED COMPONENTS uc i18n)
 
 # Main binary
@@ -30,7 +31,7 @@ add_executable(
   src/utils.cpp
 )
 target_include_directories(gptoss PRIVATE includes)
-target_link_libraries(gptoss PRIVATE ICU::uc ICU::i18n)
+target_link_libraries(gptoss PRIVATE ICU::uc ICU::i18n OpenMP::OpenMP_CXX)
 
 # Tests
 include(CTest)

@@ -72,6 +72,7 @@ void unembedding_logits(const std::uint16_t* weight_bf16,
     for (std::size_t t = 0; t < seq_len; ++t) {
         const float* x_row = x.data() + t * hidden_size;
         float* out_row = out.data() + t * vocab_size;
+#pragma omp parallel for schedule(static)
         for (std::size_t v = 0; v < vocab_size; ++v) {
             const std::uint16_t* w_row = weight_bf16 + v * hidden_size;
             float acc = 0.0f;
@@ -114,6 +115,7 @@ void linear_bf16(const std::uint16_t* weight_bf16,
     for (std::size_t t = 0; t < seq_len; ++t) {
         const float* x_row = x.data() + t * in_features;
         float* out_row = out.data() + t * out_features;
+#pragma omp parallel for schedule(static)
         for (std::size_t o = 0; o < out_features; ++o) {
             const std::uint16_t* w_row = weight_bf16 + o * in_features;
             float acc = 0.0f;
@@ -242,6 +244,7 @@ void sdpa_with_sinks(std::span<const float> q,
         const std::size_t min_k = sliding_window > 0
                                       ? (abs_pos + 1 > sliding_window ? abs_pos + 1 - sliding_window : 0)
                                       : 0;
+#pragma omp parallel for schedule(static)
         for (std::size_t h = 0; h < num_q_heads; ++h) {
             const std::size_t kv_head = h / q_mult;
             const float* q_row = q.data() + (t * num_q_heads + h) * head_dim;
@@ -304,6 +307,7 @@ void mxfp4_gemm(const std::uint8_t* blocks,
                 std::span<const float> x,
                 std::span<float> out) {
     const std::size_t blocks_per_row = in_features / kMxFp4ValuesPerBlock;
+#pragma omp parallel for schedule(static)
     for (std::size_t o = 0; o < out_features; ++o) {
         float acc = 0.0f;
         const std::uint8_t* row_blocks = blocks + o * blocks_per_row * kMxFp4BytesPerBlock;
