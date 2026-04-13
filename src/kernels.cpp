@@ -138,16 +138,20 @@ void apply_rope(std::span<float> q,
                 float rope_theta,
                 float rope_scaling_factor,
                 float rope_ntk_alpha,
-                float rope_ntk_beta) {
+                float rope_ntk_beta,
+                std::size_t position_offset) {
+
     const std::size_t half_dim = head_dim / 2;
-    std::vector<float> inv_freq(half_dim, 0.0f);
-    float concentration = 1.0f;
+    // _compute_concentration_and_inv_freq
+    // freq = base ** (arange(0, head_dim, 2) / head_dim)
+    std::vector<float> freq(half_dim);
     for (std::size_t i = 0; i < half_dim; ++i) {
         const float exponent = static_cast<float>(2 * i) / static_cast<float>(head_dim);
-        const float freq = std::pow(rope_theta, exponent);
-        inv_freq[i] = 1.0f / freq;
+        freq[i] = std::pow(rope_theta, exponent);
     }
 
+    std::vector<float> inv_freq(half_dim);
+    float concentration;
     if (rope_scaling_factor > 1.0f) {
         concentration = 0.1f * std::log(rope_scaling_factor) + 1.0f;
         const float d_half = static_cast<float>(head_dim) * 0.5f;
@@ -158,37 +162,62 @@ void apply_rope(std::span<float> q,
                                              (rope_ntk_alpha * 2.0f * kPi)) /
                            std::log(rope_theta);
         for (std::size_t i = 0; i < half_dim; ++i) {
+            const float interpolation = 1.0f / (rope_scaling_factor * freq[i]);
+            const float extrapolation = 1.0f / freq[i];
             const float ramp = (static_cast<float>(i) - low) / (high - low);
             const float mask = 1.0f - std::clamp(ramp, 0.0f, 1.0f);
-            const float interpolation = inv_freq[i] / rope_scaling_factor;
-            const float extrapolation = inv_freq[i];
             inv_freq[i] = interpolation * (1.0f - mask) + extrapolation * mask;
+        }
+    } else {
+        concentration = 1.0f;
+        for (std::size_t i = 0; i < half_dim; ++i) {
+            inv_freq[i] = 1.0f / freq[i];
         }
     }
 
+    // _compute_cos_sin
+    // freqs = einsum("i,j->ij", t, inv_freq)
+    // cos = freqs.cos() * concentration
+    // sin = freqs.sin() * concentration
+    std::vector<float> cos_table(seq_len * half_dim);
+    std::vector<float> sin_table(seq_len * half_dim);
     for (std::size_t t = 0; t < seq_len; ++t) {
+        for (std::size_t d = 0; d < half_dim; ++d) {
+            const float angle = static_cast<float>(t + position_offset) * inv_freq[d];
+            cos_table[t * half_dim + d] = std::cos(angle) * concentration;
+            sin_table[t * half_dim + d] = std::sin(angle) * concentration;
+        }
+    }
+
+    // forward: _apply_rotary_emb(query, cos, sin)
+    // x1, x2 = chunk(x, 2, dim=-1)
+    // o1 = x1 * cos - x2 * sin
+    // o2 = x2 * cos + x1 * sin
+    for (std::size_t t = 0; t < seq_len; ++t) {
+        const float* cos_row = cos_table.data() + t * half_dim;
+        const float* sin_row = sin_table.data() + t * half_dim;
         for (std::size_t h = 0; h < num_q_heads; ++h) {
             float* q_row = q.data() + (t * num_q_heads + h) * head_dim;
             for (std::size_t d = 0; d < half_dim; ++d) {
-                const float angle = static_cast<float>(t) * inv_freq[d];
-                const float c = std::cos(angle) * concentration;
-                const float s = std::sin(angle) * concentration;
                 const float x1 = q_row[d];
                 const float x2 = q_row[d + half_dim];
-                q_row[d] = x1 * c - x2 * s;
-                q_row[d + half_dim] = x2 * c + x1 * s;
+                q_row[d] = x1 * cos_row[d] - x2 * sin_row[d];
+                q_row[d + half_dim] = x2 * cos_row[d] + x1 * sin_row[d];
             }
         }
+    }
+
+    // forward: _apply_rotary_emb(key, cos, sin)
+    for (std::size_t t = 0; t < seq_len; ++t) {
+        const float* cos_row = cos_table.data() + t * half_dim;
+        const float* sin_row = sin_table.data() + t * half_dim;
         for (std::size_t h = 0; h < num_kv_heads; ++h) {
             float* k_row = k.data() + (t * num_kv_heads + h) * head_dim;
             for (std::size_t d = 0; d < half_dim; ++d) {
-                const float angle = static_cast<float>(t) * inv_freq[d];
-                const float c = std::cos(angle) * concentration;
-                const float s = std::sin(angle) * concentration;
                 const float x1 = k_row[d];
                 const float x2 = k_row[d + half_dim];
-                k_row[d] = x1 * c - x2 * s;
-                k_row[d + half_dim] = x2 * c + x1 * s;
+                k_row[d] = x1 * cos_row[d] - x2 * sin_row[d];
+                k_row[d + half_dim] = x2 * cos_row[d] + x1 * sin_row[d];
             }
         }
     }
@@ -198,7 +227,8 @@ void sdpa_with_sinks(std::span<const float> q,
                      std::span<const float> k,
                      std::span<const float> v,
                      std::span<const std::uint16_t> sinks_bf16,
-                     std::size_t seq_len,
+                     std::size_t q_len,
+                     std::size_t kv_len,
                      std::size_t num_q_heads,
                      std::size_t num_kv_heads,
                      std::size_t head_dim,
@@ -206,16 +236,18 @@ void sdpa_with_sinks(std::span<const float> q,
                      std::size_t sliding_window,
                      std::span<float> out) {
     const std::size_t q_mult = num_q_heads / num_kv_heads;
-    for (std::size_t t = 0; t < seq_len; ++t) {
+    const std::size_t kv_offset = kv_len - q_len;
+    for (std::size_t t = 0; t < q_len; ++t) {
+        const std::size_t abs_pos = kv_offset + t;
         const std::size_t min_k = sliding_window > 0
-                                      ? (t + 1 > sliding_window ? t + 1 - sliding_window : 0)
+                                      ? (abs_pos + 1 > sliding_window ? abs_pos + 1 - sliding_window : 0)
                                       : 0;
         for (std::size_t h = 0; h < num_q_heads; ++h) {
             const std::size_t kv_head = h / q_mult;
             const float* q_row = q.data() + (t * num_q_heads + h) * head_dim;
             std::vector<float> logits;
-            logits.reserve(seq_len - min_k + 1);
-            for (std::size_t k_idx = min_k; k_idx <= t; ++k_idx) {
+            logits.reserve(abs_pos - min_k + 2);
+            for (std::size_t k_idx = min_k; k_idx <= abs_pos; ++k_idx) {
                 const float* k_row = k.data() + (k_idx * num_kv_heads + kv_head) * head_dim;
                 float acc = 0.0f;
                 for (std::size_t d = 0; d < head_dim; ++d) {
@@ -230,7 +262,7 @@ void sdpa_with_sinks(std::span<const float> q,
             float* out_row = out.data() + (t * num_q_heads + h) * head_dim;
             std::fill(out_row, out_row + head_dim, 0.0f);
             std::size_t logit_idx = 0;
-            for (std::size_t k_idx = min_k; k_idx <= t; ++k_idx) {
+            for (std::size_t k_idx = min_k; k_idx <= abs_pos; ++k_idx) {
                 const float* v_row = v.data() + (k_idx * num_kv_heads + kv_head) * head_dim;
                 const float w = logits[logit_idx++];
                 for (std::size_t d = 0; d < head_dim; ++d) {

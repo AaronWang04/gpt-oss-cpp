@@ -43,14 +43,18 @@ void apply_rope(std::span<float> q,
                 float rope_theta,
                 float rope_scaling_factor,
                 float rope_ntk_alpha,
-                float rope_ntk_beta);
+                float rope_ntk_beta,
+                std::size_t position_offset = 0);
 
 // Scaled dot-product attention with sinks and optional sliding window.
+// q is [q_len × num_q_heads × head_dim], k/v are [kv_len × num_kv_heads × head_dim].
+// q_len may be smaller than kv_len when using a KV cache (e.g. 1 during decode).
 void sdpa_with_sinks(std::span<const float> q,
                      std::span<const float> k,
                      std::span<const float> v,
                      std::span<const std::uint16_t> sinks_bf16,
-                     std::size_t seq_len,
+                     std::size_t q_len,
+                     std::size_t kv_len,
                      std::size_t num_q_heads,
                      std::size_t num_kv_heads,
                      std::size_t head_dim,

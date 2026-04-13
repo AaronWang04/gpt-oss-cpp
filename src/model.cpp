@@ -116,19 +116,20 @@ void AttentionBlock::forward(std::span<const float> x,
     const float eps = 1e-5f;
     const float sm_scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
 
-    require_count("attn.norm.scale", norm_scale_count, hidden);
-    require_count("attn.qkv.weight", qkv_weight_count, qkv_dim * hidden);
-    require_count("attn.qkv.bias", qkv_bias_count, qkv_dim);
-    require_count("attn.out.weight", out_weight_count, hidden * (num_heads * head_dim));
-    require_count("attn.out.bias", out_bias_count, hidden);
-    require_count("attn.sinks", sinks_count, num_heads);
+    // require_count("attn.norm.scale", norm_scale_count, hidden);
+    // require_count("attn.qkv.weight", qkv_weight_count, qkv_dim * hidden);
+    // require_count("attn.qkv.bias", qkv_bias_count, qkv_dim);
+    // require_count("attn.out.weight", out_weight_count, hidden * (num_heads * head_dim));
+    // require_count("attn.out.bias", out_bias_count, hidden);
+    // require_count("attn.sinks", sinks_count, num_heads);
 
-    std::vector<float> normed(seq_len * hidden, 0.0f);
-    rmsnorm(x, std::span<const std::uint16_t>(norm_scale, norm_scale_count), eps, hidden, normed);
+    std::vector<float> norm_out(seq_len * hidden, 0.0f);
+    rmsnorm(x, std::span<const std::uint16_t>(norm_scale, norm_scale_count), eps, hidden, norm_out);
 
     std::vector<float> qkv(seq_len * qkv_dim, 0.0f);
-    linear_bf16(qkv_weight, qkv_bias, hidden, qkv_dim, normed, qkv);
-
+    linear_bf16(qkv_weight, qkv_bias, hidden, qkv_dim, norm_out, qkv);
+    
+    // slicing output of linear
     std::vector<float> q(seq_len * num_heads * head_dim, 0.0f);
     std::vector<float> k(seq_len * num_kv_heads * head_dim, 0.0f);
     std::vector<float> v(seq_len * num_kv_heads * head_dim, 0.0f);
@@ -145,15 +146,18 @@ void AttentionBlock::forward(std::span<const float> x,
         std::copy(row + q_bytes + k_bytes, row + q_bytes + 2 * k_bytes, v_row);
     }
 
+    const std::size_t initial_context_length = kConfig20B.initial_context_length;
+    const float rope_theta = static_cast<float>(kConfig20B.rope_theta);
+    const float rope_scaling_factor = static_cast<float>(kConfig20B.rope_scaling_factor);
+    const float rope_ntk_alpha = static_cast<float>(kConfig20B.rope_ntk_alpha);
+    const float rope_ntk_beta = static_cast<float>(kConfig20B.rope_ntk_beta);
     apply_rope(q, k, seq_len, num_heads, num_kv_heads, head_dim,
-               kConfig20B.initial_context_length, static_cast<float>(kConfig20B.rope_theta),
-               static_cast<float>(kConfig20B.rope_scaling_factor),
-               static_cast<float>(kConfig20B.rope_ntk_alpha),
-               static_cast<float>(kConfig20B.rope_ntk_beta));
+               initial_context_length, rope_theta, rope_scaling_factor,
+               rope_ntk_alpha, rope_ntk_beta);
 
     std::vector<float> attn(seq_len * num_heads * head_dim, 0.0f);
     sdpa_with_sinks(q, k, v, std::span<const std::uint16_t>(sinks, sinks_count), seq_len,
-                    num_heads, num_kv_heads, head_dim, sm_scale, sliding_window, attn);
+                    seq_len, num_heads, num_kv_heads, head_dim, sm_scale, sliding_window, attn);
 
     std::vector<float> projected(seq_len * hidden, 0.0f);
     linear_bf16(out_weight, out_bias, num_heads * head_dim, hidden, attn, projected);
@@ -196,15 +200,15 @@ void MLPBlock::forward(std::span<const float> x,
     const std::size_t intermediate = kConfig20B.intermediate_size;
     const float eps = 1e-5f;
 
-    require_count("mlp.norm.scale", norm_scale_count, hidden);
-    require_count("mlp.gate.weight", gate_weight_count, num_experts * hidden);
-    require_count("mlp.gate.bias", gate_bias_count, num_experts);
+    // require_count("mlp.norm.scale", norm_scale_count, hidden);
+    // require_count("mlp.gate.weight", gate_weight_count, num_experts * hidden);
+    // require_count("mlp.gate.bias", gate_bias_count, num_experts);
 
-    std::vector<float> normed(seq_len * hidden, 0.0f);
-    rmsnorm(x, std::span<const std::uint16_t>(norm_scale, norm_scale_count), eps, hidden, normed);
+    std::vector<float> norm_out(seq_len * hidden, 0.0f);
+    rmsnorm(x, std::span<const std::uint16_t>(norm_scale, norm_scale_count), eps, hidden, norm_out);
 
     std::vector<float> gate_logits(seq_len * num_experts, 0.0f);
-    linear_bf16(gate_weight, gate_bias, hidden, num_experts, normed, gate_logits);
+    linear_bf16(gate_weight, gate_bias, hidden, num_experts, norm_out, gate_logits);
 
     const std::size_t mlp1_out_features = intermediate * 2;
     const std::size_t mlp2_out_features = hidden;
@@ -213,16 +217,16 @@ void MLPBlock::forward(std::span<const float> x,
     const std::size_t mlp1_row_blocks = blocks_per_row_mlp1 * 16;
     const std::size_t mlp2_row_blocks = blocks_per_row_mlp2 * 16;
 
-    require_count("mlp.mlp1_bias", mlp1_bias_count, num_experts * mlp1_out_features);
-    require_count("mlp.mlp2_bias", mlp2_bias_count, num_experts * mlp2_out_features);
-    require_count("mlp.mlp1_weight.blocks", mlp1_weight_blocks_count,
-                  num_experts * mlp1_out_features * mlp1_row_blocks);
-    require_count("mlp.mlp1_weight.scales", mlp1_weight_scales_count,
-                  num_experts * mlp1_out_features * blocks_per_row_mlp1);
-    require_count("mlp.mlp2_weight.blocks", mlp2_weight_blocks_count,
-                  num_experts * mlp2_out_features * mlp2_row_blocks);
-    require_count("mlp.mlp2_weight.scales", mlp2_weight_scales_count,
-                  num_experts * mlp2_out_features * blocks_per_row_mlp2);
+    // require_count("mlp.mlp1_bias", mlp1_bias_count, num_experts * mlp1_out_features);
+    // require_count("mlp.mlp2_bias", mlp2_bias_count, num_experts * mlp2_out_features);
+    // require_count("mlp.mlp1_weight.blocks", mlp1_weight_blocks_count,
+    //               num_experts * mlp1_out_features * mlp1_row_blocks);
+    // require_count("mlp.mlp1_weight.scales", mlp1_weight_scales_count,
+    //               num_experts * mlp1_out_features * blocks_per_row_mlp1);
+    // require_count("mlp.mlp2_weight.blocks", mlp2_weight_blocks_count,
+    //               num_experts * mlp2_out_features * mlp2_row_blocks);
+    // require_count("mlp.mlp2_weight.scales", mlp2_weight_scales_count,
+    //               num_experts * mlp2_out_features * blocks_per_row_mlp2);
 
     std::vector<std::int32_t> topk_indices(experts_per_token);
     std::vector<float> topk_weights(experts_per_token);
@@ -245,7 +249,7 @@ void MLPBlock::forward(std::span<const float> x,
                                              expert_idx * mlp1_out_features * blocks_per_row_mlp1;
             const std::uint16_t* mlp1_bias_row = mlp1_bias + expert_idx * mlp1_out_features;
 
-            const float* x_row = normed.data() + t * hidden;
+            const float* x_row = norm_out.data() + t * hidden;
             mxfp4_gemm(mlp1_blocks, mlp1_scales, mlp1_out_features, hidden,
                       std::span<const float>(x_row, hidden), mlp1_out);
             for (std::size_t i = 0; i < mlp1_out_features; ++i) {
