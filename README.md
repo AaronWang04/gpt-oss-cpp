@@ -26,8 +26,14 @@ then build the project and run it
 cmake --build build && ./build/gptoss
 ```
 
+Current done:
+- Checkpointing
+- Tokenizing
+- PyTorch parity c++ functions (not call them kernels cuz bad perf :P)
+- KV Caching
+
 TODO:
-- KV CACHING
-- make it an actual serving engine by processing multiple requests (batching, memory handling, scheduling, etc)
-- some profiling/performance stuff?
+- add cuda kernels
+- add an api server
+- try some actual benchmark perf on 5090?
 - megakernel?
