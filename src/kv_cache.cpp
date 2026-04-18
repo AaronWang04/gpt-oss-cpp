@@ -1,7 +1,6 @@
 #include "kv_cache.h"
 
-KVCache::KVCache(std::size_t num_layers)
-    : k_cache(num_layers), v_cache(num_layers) {}
+KVCache::KVCache(std::size_t num_layers) : k_cache(num_layers), v_cache(num_layers) {}
 
 void KVCache::append(std::size_t layer,
                      std::span<const float> k_new,

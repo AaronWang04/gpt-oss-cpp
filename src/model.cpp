@@ -360,6 +360,6 @@ void GPTOSSModel::forward(std::span<const std::int32_t> token_ids,
     rmsnorm(x, std::span<const std::uint16_t>(norm_scale, norm_scale_count), eps, hidden, tmp);
     unembedding.forward(tmp, logits, num_tokens);
 
-    // Advance cache once per forward pass (all layers used the same position offset).
+    // Advance cache at the end for offset correctness
     kv_cache.seq_len += num_tokens;
 }

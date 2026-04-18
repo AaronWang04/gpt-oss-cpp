@@ -8,9 +8,6 @@ class KVCache {
 public:
     explicit KVCache(std::size_t num_layers);
 
-    // Append post-RoPE K and V for q_len new tokens to the layer's cache.
-    // Does NOT update seq_len — GPTOSSModel::forward bumps seq_len once per forward pass
-    // so all layers read a consistent position offset.
     void append(std::size_t layer,
                 std::span<const float> k_new,
                 std::span<const float> v_new);
