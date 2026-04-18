@@ -2,6 +2,7 @@
 
 #include "checkpoint.h"
 #include "kernels.h"
+#include "kv_cache.h"
 
 #include <algorithm>
 #include <cmath>
@@ -87,7 +88,7 @@ void Embedding::forward(std::span<const std::int32_t> token_id,
 }
 
 
-AttentionBlock::AttentionBlock(Checkpoint& checkpoint, int layer_idx) {
+AttentionBlock::AttentionBlock(Checkpoint& checkpoint, int layer_idx) : layer_idx(layer_idx) {
     std::string prefix = "block." + std::to_string(layer_idx) + ".attn.";
     norm_scale = checkpoint.get_bf16_ptr(prefix + "norm.scale");
     norm_scale_count = checkpoint.get_bf16_count(prefix + "norm.scale");
@@ -107,7 +108,8 @@ AttentionBlock::AttentionBlock(Checkpoint& checkpoint, int layer_idx) {
 
 void AttentionBlock::forward(std::span<const float> x,
                              std::span<float> out,
-                             std::size_t seq_len) const {
+                             std::size_t seq_len,
+                             KVCache& kv_cache) const {
     const std::size_t hidden = hidden_size;
     const std::size_t num_heads = kConfig20B.num_attention_heads;
     const std::size_t num_kv_heads = kConfig20B.num_key_value_heads;
@@ -146,18 +148,34 @@ void AttentionBlock::forward(std::span<const float> x,
         std::copy(row + q_bytes + k_bytes, row + q_bytes + 2 * k_bytes, v_row);
     }
 
+    
+
     const std::size_t initial_context_length = kConfig20B.initial_context_length;
     const float rope_theta = static_cast<float>(kConfig20B.rope_theta);
     const float rope_scaling_factor = static_cast<float>(kConfig20B.rope_scaling_factor);
     const float rope_ntk_alpha = static_cast<float>(kConfig20B.rope_ntk_alpha);
     const float rope_ntk_beta = static_cast<float>(kConfig20B.rope_ntk_beta);
+
+    // Read cache size BEFORE appending so RoPE positions start at kv_offset.
+    const std::size_t kv_offset = kv_cache.seq_len;
+    const std::size_t kv_len = kv_offset + seq_len;
+
     apply_rope(q, k, seq_len, num_heads, num_kv_heads, head_dim,
                initial_context_length, rope_theta, rope_scaling_factor,
-               rope_ntk_alpha, rope_ntk_beta);
+               rope_ntk_alpha, rope_ntk_beta, kv_offset);
+
+    kv_cache.append(layer_idx, k, v);
+
+    const auto& k_full = kv_cache.k_cache[layer_idx];
+    const auto& v_full = kv_cache.v_cache[layer_idx];
 
     std::vector<float> attn(seq_len * num_heads * head_dim, 0.0f);
-    sdpa_with_sinks(q, k, v, std::span<const std::uint16_t>(sinks, sinks_count), seq_len,
-                    seq_len, num_heads, num_kv_heads, head_dim, sm_scale, sliding_window, attn);
+    sdpa_with_sinks(std::span<const float>(q),
+                    std::span<const float>(k_full.data(), k_full.size()),
+                    std::span<const float>(v_full.data(), v_full.size()),
+                    std::span<const std::uint16_t>(sinks, sinks_count),
+                    seq_len, kv_len, num_heads, num_kv_heads, head_dim,
+                    sm_scale, sliding_window, attn);
 
     std::vector<float> projected(seq_len * hidden, 0.0f);
     linear_bf16(out_weight, out_bias, num_heads * head_dim, hidden, attn, projected);
@@ -291,9 +309,10 @@ TransformerBlock::TransformerBlock(Checkpoint& checkpoint, int layer_idx)
 
 void TransformerBlock::forward(std::span<const float> x,
                                std::span<float> out,
-                               std::size_t seq_len) const {
+                               std::size_t seq_len,
+                               KVCache& kv_cache) const {
     std::vector<float> attn_out(seq_len * hidden_size, 0.0f);
-    attn.forward(x, attn_out, seq_len);
+    attn.forward(x, attn_out, seq_len, kv_cache);
     mlp.forward(attn_out, out, seq_len);
 }
 
@@ -325,18 +344,22 @@ GPTOSSModel::~GPTOSSModel() = default;
 
 void GPTOSSModel::forward(std::span<const std::int32_t> token_ids,
                           std::span<float> logits,
-                          std::size_t seq_len) const {
+                          KVCache& kv_cache) const {
     const std::size_t hidden = kConfig20B.hidden_size;
     const float eps = 1e-5f;
+    const std::size_t seq_len = token_ids.size();
     std::vector<float> x(seq_len * hidden, 0.0f);
     std::vector<float> tmp(seq_len * hidden, 0.0f);
 
     embedding.forward(token_ids, x, seq_len);
     for (std::size_t i = 0; i < blocks.size(); ++i) {
-        blocks[i].forward(x, tmp, seq_len);
+        blocks[i].forward(x, tmp, seq_len, kv_cache);
         std::swap(x, tmp);
     }
 
     rmsnorm(x, std::span<const std::uint16_t>(norm_scale, norm_scale_count), eps, hidden, tmp);
     unembedding.forward(tmp, logits, seq_len);
+
+    // Advance cache once per forward pass (all layers used the same position offset).
+    kv_cache.seq_len += seq_len;
 }

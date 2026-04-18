@@ -5,6 +5,8 @@
 #include <span>
 #include <vector>
 
+#include "kv_cache.h"
+
 class Checkpoint;
 
 class Embedding {
@@ -26,9 +28,11 @@ public:
 
     void forward(std::span<const float> x,
                  std::span<float> out,
-                 std::size_t seq_len) const;
+                 std::size_t seq_len,
+                 KVCache& kv_cache) const;
 
 private:
+    int layer_idx{0};
     const std::uint16_t* norm_scale{nullptr};
     std::size_t norm_scale_count{0};
     const std::uint16_t* qkv_weight{nullptr};
@@ -80,7 +84,8 @@ public:
 
     void forward(std::span<const float> x,
                 std::span<float> out,
-                std::size_t seq_len) const;
+                std::size_t seq_len,
+                KVCache& kv_cache) const;
 private:
     AttentionBlock attn;
     MLPBlock mlp;
@@ -108,7 +113,7 @@ public:
     ~GPTOSSModel();
     void forward(std::span<const std::int32_t> token_ids,
                  std::span<float> logits,
-                 std::size_t seq_len) const;
+                 KVCache& kv_cache) const;
 
 private:
     Embedding embedding;

@@ -28,6 +28,7 @@ add_executable(
   src/tokenizer.cpp
   src/model.cpp
   src/kernels.cpp
+  src/kv_cache.cpp
   src/utils.cpp
 )
 target_include_directories(gptoss PRIVATE includes)
