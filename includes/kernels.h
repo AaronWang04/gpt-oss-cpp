@@ -35,7 +35,7 @@ void linear_bf16(const std::uint16_t* weight_bf16,
 // Rotary embedding for Q/K
 void apply_rope(std::span<float> q,
                 std::span<float> k,
-                std::size_t seq_len,
+                std::size_t num_tokens,
                 std::size_t num_q_heads,
                 std::size_t num_kv_heads,
                 std::size_t head_dim,

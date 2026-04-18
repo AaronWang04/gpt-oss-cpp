@@ -132,7 +132,7 @@ void linear_bf16(const std::uint16_t* weight_bf16,
 
 void apply_rope(std::span<float> q,
                 std::span<float> k,
-                std::size_t seq_len,
+                std::size_t num_tokens,
                 std::size_t num_q_heads,
                 std::size_t num_kv_heads,
                 std::size_t head_dim,
@@ -181,9 +181,9 @@ void apply_rope(std::span<float> q,
     // freqs = einsum("i,j->ij", t, inv_freq)
     // cos = freqs.cos() * concentration
     // sin = freqs.sin() * concentration
-    std::vector<float> cos_table(seq_len * half_dim);
-    std::vector<float> sin_table(seq_len * half_dim);
-    for (std::size_t t = 0; t < seq_len; ++t) {
+    std::vector<float> cos_table(num_tokens * half_dim);
+    std::vector<float> sin_table(num_tokens * half_dim);
+    for (std::size_t t = 0; t < num_tokens; ++t) {
         for (std::size_t d = 0; d < half_dim; ++d) {
             const float angle = static_cast<float>(t + position_offset) * inv_freq[d];
             cos_table[t * half_dim + d] = std::cos(angle) * concentration;
@@ -195,7 +195,7 @@ void apply_rope(std::span<float> q,
     // x1, x2 = chunk(x, 2, dim=-1)
     // o1 = x1 * cos - x2 * sin
     // o2 = x2 * cos + x1 * sin
-    for (std::size_t t = 0; t < seq_len; ++t) {
+    for (std::size_t t = 0; t < num_tokens; ++t) {
         const float* cos_row = cos_table.data() + t * half_dim;
         const float* sin_row = sin_table.data() + t * half_dim;
         for (std::size_t h = 0; h < num_q_heads; ++h) {
@@ -210,7 +210,7 @@ void apply_rope(std::span<float> q,
     }
 
     // forward: _apply_rotary_emb(key, cos, sin)
-    for (std::size_t t = 0; t < seq_len; ++t) {
+    for (std::size_t t = 0; t < num_tokens; ++t) {
         const float* cos_row = cos_table.data() + t * half_dim;
         const float* sin_row = sin_table.data() + t * half_dim;
         for (std::size_t h = 0; h < num_kv_heads; ++h) {

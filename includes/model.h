@@ -14,7 +14,7 @@ public:
     explicit Embedding(Checkpoint& checkpoint);
     void forward(std::span<const std::int32_t> token_id,
                  std::span<float> out,
-                 std::size_t seq_len) const;
+                 std::size_t num_tokens) const;
 
 private:
     const std::uint16_t* weight{nullptr};
@@ -28,7 +28,7 @@ public:
 
     void forward(std::span<const float> x,
                  std::span<float> out,
-                 std::size_t seq_len,
+                 std::size_t num_tokens,
                  KVCache& kv_cache) const;
 
 private:
@@ -55,7 +55,7 @@ public:
 
     void forward(std::span<const float> x,
                  std::span<float> out,
-                 std::size_t seq_len) const;
+                 std::size_t num_tokens) const;
 private:
     const std::uint16_t* norm_scale{nullptr};
     std::size_t norm_scale_count{0};
@@ -84,7 +84,7 @@ public:
 
     void forward(std::span<const float> x,
                 std::span<float> out,
-                std::size_t seq_len,
+                std::size_t num_tokens,
                 KVCache& kv_cache) const;
 private:
     AttentionBlock attn;
@@ -98,7 +98,7 @@ public:
 
     void forward(std::span<const float> x,
                  std::span<float> out,
-                 std::size_t seq_len) const;
+                 std::size_t num_tokens) const;
 
 private:
     const std::uint16_t* weight{nullptr};
