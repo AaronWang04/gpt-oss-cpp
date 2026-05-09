@@ -210,7 +210,7 @@ void apply_rope(std::span<float> q,
     }
 
     // forward: _apply_rotary_emb(key, cos, sin)
-    for (std::size_t t = 0; t < num_tokens; ++t) {
+    for (std::size_t t = 0; t < seq_len; ++t) {
         const float* cos_row = cos_table.data() + t * half_dim;
         const float* sin_row = sin_table.data() + t * half_dim;
         for (std::size_t h = 0; h < num_kv_heads; ++h) {
@@ -239,17 +239,20 @@ void sdpa_with_sinks(std::span<const float> q,
                      std::span<float> out) {
     const std::size_t q_mult = num_q_heads / num_kv_heads;
     const std::size_t kv_offset = kv_len - q_len;
+    // for every query token
     for (std::size_t t = 0; t < q_len; ++t) {
         const std::size_t abs_pos = kv_offset + t;
         const std::size_t min_k = sliding_window > 0
                                       ? (abs_pos + 1 > sliding_window ? abs_pos + 1 - sliding_window : 0)
                                       : 0;
 #pragma omp parallel for schedule(static)
+        // for all query heads
         for (std::size_t h = 0; h < num_q_heads; ++h) {
             const std::size_t kv_head = h / q_mult;
             const float* q_row = q.data() + (t * num_q_heads + h) * head_dim;
             std::vector<float> logits;
             logits.reserve(abs_pos - min_k + 2);
+            // for all previous K
             for (std::size_t k_idx = min_k; k_idx <= abs_pos; ++k_idx) {
                 const float* k_row = k.data() + (k_idx * num_kv_heads + kv_head) * head_dim;
                 float acc = 0.0f;
@@ -260,11 +263,13 @@ void sdpa_with_sinks(std::span<const float> q,
             }
             const float sink = bf16_to_float(sinks_bf16[h]);
             logits.push_back(sink);
+            // softmax the result of qk
             softmax_in_place(logits);
 
             float* out_row = out.data() + (t * num_q_heads + h) * head_dim;
             std::fill(out_row, out_row + head_dim, 0.0f);
             std::size_t logit_idx = 0;
+            // for all previous V
             for (std::size_t k_idx = min_k; k_idx <= abs_pos; ++k_idx) {
                 const float* v_row = v.data() + (k_idx * num_kv_heads + kv_head) * head_dim;
                 const float w = logits[logit_idx++];

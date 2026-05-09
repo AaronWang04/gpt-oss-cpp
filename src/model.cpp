@@ -148,7 +148,6 @@ void AttentionBlock::forward(std::span<const float> x,
         std::copy(row + q_bytes + k_bytes, row + q_bytes + 2 * k_bytes, v_row);
     }
 
-    
 
     const std::size_t initial_context_length = kConfig20B.initial_context_length;
     const float rope_theta = static_cast<float>(kConfig20B.rope_theta);
